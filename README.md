@@ -1,132 +1,403 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Medibook OCR Service
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS gRPC microservice that extracts text from prescription or medicine images using Google Cloud Vision OCR. The service is part of the Medibook backend and exposes one OCR RPC that returns the complete detected text and a deduplicated list of possible medicine names.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Current Status
 
-## Description
+The project currently provides:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- A NestJS microservice using the gRPC transport.
+- A `ocr.OcrService` gRPC API on port `50051`.
+- Google Cloud Vision text detection.
+- A `ExtractText` RPC for image OCR.
+- Basic medicine-name extraction from the detected text.
+- Environment-based Google credentials loading.
+- Unit-test and end-to-end-test setup.
+- TypeScript strict mode, build, formatting, linting, and Jest scripts.
 
-## Project setup
+This is an OCR/heuristic service, not a clinical prescription validation service. The returned medicine list is generated from text lines and delimiter-based filtering; it is not a verified drug database lookup.
 
-```bash
-$ npm install
+## Technology Stack
+
+- Node.js
+- TypeScript
+- NestJS 12
+- NestJS microservices
+- gRPC and Protocol Buffers
+- Google Cloud Vision (`@google-cloud/vision`)
+- Jest and Supertest
+- Oxlint
+- Prettier
+
+## Architecture
+
+```text
+gRPC client
+    |
+    | ExtractText(image bytes, MIME type)
+    v
+OcrController
+    |
+    v
+OcrService
+    |
+    v
+Google Cloud Vision textDetection
+    |
+    v
+raw text + heuristic medicine candidates
 ```
 
-## Compile and run the project
+The application starts as a gRPC microservice rather than a normal HTTP server. HTTP controller and app service files from the NestJS starter remain in the repository for unit/e2e testing, but the application bootstrap exposes no HTTP endpoint.
 
-```bash
-# development
-$ npm run start
+## API
 
-# watch mode
-$ npm run start:dev
+The protobuf contract is defined in [`src/proto/ocr.proto`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/src/proto/ocr.proto).
 
-# production mode
-$ npm run start:prod
+### Package
+
+```text
+ocr
 ```
 
-## Run tests
+### Service
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```protobuf
+service OcrService {
+  rpc ExtractText (ExtractTextRequest) returns (ExtractTextResponse);
+}
 ```
 
-## Deployment
+### ExtractText Request
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+| Field | Protobuf type | Description |
+|---|---|---|
+| `image` | `bytes` | Raw image file content. |
+| `mime_type` | `string` | MIME type supplied by the caller, for example `image/jpeg` or `image/png`. |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```protobuf
+message ExtractTextRequest {
+  bytes image = 1;
+  string mime_type = 2;
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### ExtractText Response
 
-## Observability
+| Field | Protobuf type | Description |
+|---|---|---|
+| `raw_text` | `string` | Text returned from Google Cloud Vision. |
+| `medicines` | `string[]` | Deduplicated lowercase medicine candidates. |
+| `success` | `bool` | `true` when OCR completed; `false` when Vision API processing failed. |
+| `error` | `string` | Vision API error message, or an empty string on success. |
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
+```protobuf
+message ExtractTextResponse {
+  string raw_text = 1;
+  repeated string medicines = 2;
+  bool success = 3;
+  string error = 4;
+}
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+Example response:
 
-Or do it by hand:
-
-```bash
-$ npm install @nestjs/observe
+```json
+{
+  "raw_text": "Dr. Smith\nCrocin 500 mg\nTwice daily",
+  "medicines": [
+    "dr. smith",
+    "crocin 500 mg",
+    "twice"
+  ],
+  "success": true,
+  "error": ""
+}
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+The exact output depends on Google Vision detections and the current text heuristics.
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+## Processing Flow
 
-## Resources
+1. A gRPC client calls `ocr.OcrService/ExtractText`.
+2. [`OcrController`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/src/ocr/ocr.controller.ts) receives the request.
+3. The image bytes are converted to a Node.js `Buffer` if necessary.
+4. [`OcrService`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/src/ocr/ocr.service.ts) sends the image content to Google Cloud Vision `textDetection`.
+5. If no text annotations are found, the service returns an empty text and medicine list with `success: true`.
+6. If text is found, the first annotation description is used as the full detected text.
+7. Text is split by newline, comma, and semicolon delimiters.
+8. Short values, numeric-only values, and a fixed set of prescription words are filtered out.
+9. Remaining values are converted to lowercase and deduplicated.
+10. The result is mapped back to the protobuf response fields.
 
-Check out a few resources that may come in handy when working with NestJS:
+### Current Medicine Extraction Behavior
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+The medicine extraction is deliberately simple:
 
-## Support
+- Values longer than two characters are retained.
+- Numeric-only values are removed.
+- The following words are ignored case-insensitively: `date`, `dr`, `name`, `age`, `rx`, `sig`, `tab`, `cap`, `mg`, `ml`, `times`, `day`, `days`, `morning`, `night`, and `afternoon`.
+- Output is lowercase.
+- Duplicate values are removed.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+The service currently does not use `mime_type` when calling Google Vision, does not verify recognized text against a medicine database, and does not classify dosage instructions into structured fields.
 
-## Stay in touch
+## Prerequisites
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- Node.js 20.19+ or 22.12+
+- npm
+- A Google Cloud project
+- Google Cloud Vision API enabled
+- A Google service account credential with permission to use Vision
 
-## License
+Using NestJS packages in this project requires a compatible Node.js version.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Installation
+
+```bash
+npm install
+```
+
+## Google Cloud Credentials
+
+Create or download a Google Cloud service-account JSON key and set `GOOGLE_APPLICATION_CREDENTIALS` to its path.
+
+For the current local setup, the path in [`.env`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/.env) is:
+
+```dotenv
+GOOGLE_APPLICATION_CREDENTIALS=./google-credentials.json
+PORT=50051
+NODE_ENV=development
+```
+
+The credential file [`google-credentials.json`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/google-credentials.json) and `.env` are ignored by Git. Do not commit either file or expose it in logs or screenshots.
+
+If the key is exposed or checked into version control, revoke or rotate it in Google Cloud immediately and create a new service account key.
+
+### Environment Variables
+
+| Variable | Required | Current use | Default |
+|---|---:|---|---|
+| `GOOGLE_APPLICATION_CREDENTIALS` | Yes | Google Cloud service-account credential path | None |
+| `PORT` | No | Documented intended gRPC port | `50051` |
+| `NODE_ENV` | No | Runtime environment label | Not set |
+
+The current gRPC bootstrap hardcodes `0.0.0.0:50051`; changing `PORT` in `.env` alone does not change the listening address.
+
+## Running the Service
+
+### Development
+
+```bash
+npm run start:dev
+```
+
+### Standard start
+
+```bash
+npm run start
+```
+
+### Debug mode
+
+```bash
+npm run start:debug
+```
+
+### Production build and start
+
+```bash
+npm run build
+npm run start:prod
+```
+
+When started successfully, the microservice listens on:
+
+```text
+0.0.0.0:50051
+```
+
+It logs:
+
+```text
+OCR gRPC microservice running on port 50051
+```
+
+## Connecting with a gRPC Client
+
+Load [`ocr.proto`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/src/proto/ocr.proto), connect to `127.0.0.1:50051`, and call:
+
+```text
+ocr.OcrService.ExtractText
+```
+
+With the image file `prescription.jpg`, the request conceptually contains:
+
+```json
+{
+  "image": "<binary image content>",
+  "mime_type": "image/jpeg"
+}
+```
+
+No HTTP REST route is currently registered.
+
+## Project Structure
+
+```text
+medibook-ocr-service/
+├── src/
+│   ├── app.module.ts              # Loads global configuration and OCR module
+│   ├── app.controller.ts          # Nest starter HTTP controller
+│   ├── app.controller.spec.ts     # Starter unit test
+│   ├── app.service.ts             # Starter service
+│   ├── main.ts                    # gRPC microservice bootstrap
+│   ├── ocr/
+│   │   ├── ocr.controller.ts      # gRPC ExtractText method
+│   │   ├── ocr.module.ts          # OCR module wiring
+│   │   └── ocr.service.ts         # Google Vision and text heuristics
+│   └── proto/
+│       └── ocr.proto              # gRPC package and message contract
+├── test/
+│   ├── app.e2e-spec.ts            # Starter end-to-end HTTP test
+│   └── jest-e2e.json              # End-to-end Jest configuration
+├── .env                            # Local environment configuration
+├── google-credentials.json         # Local Google credential file
+├── jest.config.ts                  # Unit-test configuration
+├── nest-cli.json                   # Nest CLI configuration
+├── package.json                    # Scripts and dependencies
+├── tsconfig.json                   # TypeScript compiler settings
+└── tsconfig.build.json             # Production build settings
+```
+
+## Scripts
+
+| Command | Purpose |
+|---|---|
+| `npm run build` | Compile the project into `dist`. |
+| `npm run start` | Start the NestJS application once. |
+| `npm run start:dev` | Start in watch mode. |
+| `npm run start:debug` | Start with Node debugging and watch mode. |
+| `npm run start:prod` | Run the compiled `dist/main` entry point. |
+| `npm run format` | Format source and test TypeScript files with Prettier. |
+| `npm run lint` | Run Oxlint with type-aware checks. |
+| `npm test` | Run unit tests. |
+| `npm run test:watch` | Run unit tests in watch mode. |
+| `npm run test:cov` | Run unit tests and collect coverage. |
+| `npm run test:debug` | Run tests in Node inspector mode. |
+| `npm run test:e2e` | Run end-to-end tests. |
+| `npm run deploy` | Run the Nest deployment script. |
+
+## Testing
+
+Run unit tests:
+
+```bash
+npm test
+```
+
+Run tests with coverage:
+
+```bash
+npm run test:cov
+```
+
+Run end-to-end tests:
+
+```bash
+npm run test:e2e
+```
+
+The current test suite includes:
+
+- `src/app.controller.spec.ts`, verifying the starter `AppController` behavior.
+- `test/app.e2e-spec.ts`, verifying the starter `/` HTTP response.
+
+These tests do not currently exercise the gRPC `ExtractText` RPC or Google Vision integration directly.
+
+## Build and TypeScript Configuration
+
+- TypeScript target: `ES2023`
+- Module system: `nodenext`
+- Strict type checking is enabled.
+- Decorator metadata is enabled.
+- Production builds include `src`, excluding tests and test specifications.
+- The build output is written to `dist`.
+- Nest CLI removes the existing `dist` directory before rebuilding.
+
+## Error Handling
+
+Google Vision failures are caught inside `OcrService`.
+
+The service returns:
+
+```json
+{
+  "raw_text": "",
+  "medicines": [],
+  "success": false,
+  "error": "<error message>"
+}
+```
+
+Unexpected exceptions thrown before `OcrService` processing or by the gRPC framework may still be handled by NestJS/gRPC rather than by the response fields above.
+
+## Security and Secrets
+
+- `.env` is ignored by Git.
+- `google-credentials.json` is ignored by Git.
+- The credential JSON should have only the permissions required for Google Cloud Vision.
+- Do not add credentials or private keys to source, logs, test fixtures, or README examples.
+- Restrict network exposure of port `50051` according to deployment requirements.
+- The service currently has no authentication or authorization on the gRPC endpoint.
+- The service currently has no request-size limit or explicit image validation beyond gRPC bytes.
+
+## Troubleshooting
+
+### Credentials not found
+
+Verify that `GOOGLE_APPLICATION_CREDENTIALS` is set and that the path is valid. The repository `.env` uses a relative path, so run the service from the repository root.
+
+### Vision API authentication or permission errors
+
+Confirm that:
+
+- The service-account credential belongs to the correct project.
+- Cloud Vision API is enabled.
+- The service account has permission to invoke Vision.
+- The credential has not been revoked or expired.
+
+### Port already in use
+
+Stop the process currently using port `50051`, or change the listening URL in [`src/main.ts`](/C:/Users/Dcuser/Desktop/devlope/MEDIBOOK_BACKEND/medibook-ocr-service/src/main.ts). Changing only `PORT` in `.env` does not affect the current bootstrap.
+
+### No text detected
+
+The response is successful but contains:
+
+```json
+{
+  "raw_text": "",
+  "medicines": [],
+  "success": true,
+  "error": ""
+}
+```
+
+Try a sharper image with better lighting and a readable prescription or medicine label.
+
+## Current Limitations and Recommended Next Work
+
+- Add a real gRPC test client or integration test for `ExtractText`.
+- Mock Google Vision for deterministic unit tests.
+- Use `PORT` from configuration instead of hardcoding `50051`.
+- Validate `mime_type`, image size, and supported formats.
+- Pass the MIME type to an appropriate Vision image method or validate it before processing.
+- Replace generic word filtering with structured OCR post-processing.
+- Add known medicine recognition from a curated database or pharmacy reference API.
+- Separate dosage, frequency, quantity, and medicine name fields.
+- Add gRPC authentication and TLS.
+- Add request timeouts, size limits, and rate limiting.
+- Remove or repurpose the starter HTTP controller and app service once no longer needed.
+- Add health checks and production observability.
+- Add Docker configuration if container deployment is required.
