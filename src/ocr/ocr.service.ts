@@ -39,24 +39,24 @@ export class OcrService {
     }
   }
 
-  private extractMedicineNames(text: string): string[] {
-    // Split by newlines and common delimiters
-    const lines = text.split(/[\n,;]+/);
-    
-    const medicines: string[] = [];
-    
-    for (const line of lines) {
-      const cleaned = line.trim();
-      // Filter out short words, numbers only, and common non-medicine words
-      if (
-        cleaned.length > 2 &&
-        !/^\d+$/.test(cleaned) &&
-        !/^(date|dr|name|age|rx|sig|tab|cap|mg|ml|times|day|days|morning|night|afternoon)$/i.test(cleaned)
-      ) {
-        medicines.push(cleaned.toLowerCase());
-      }
-    }
+private extractMedicineNames(text: string): string[] {
+  const lines = text.split(/[\n,;]+/);
+  const medicines: string[] = [];
 
-    return [...new Set(medicines)]; // deduplicate
+  const skipPatterns = /^(uses|mechanism|action|side effects|dose|adult|relief|reduces|fever|pain|common|do not|maximum|every|hours|nausea|rash|liver|used in|colds|flu|febrile|reducing|regulating|inhibits|synthesis|central|nervous|system|perception|body|temperature|hypothalamus|prostaglandin|analgesic|antipyretic|headache|toothache|muscle|backache|menstrual|osteoarthritis|overdose|recommended|needed|mg|ml|tab|cap|times|day|days|morning|night|afternoon|date|dr|name|age|rx|sig|to\s+\d|as\s+needed|in\s+the)/i;
+
+  for (const line of lines) {
+    const cleaned = line.trim().replace(/^[•\-\*\[\(]+|[\]\)]+$/g, '').trim();
+    if (
+      cleaned.length > 2 &&
+      cleaned.split(' ').length <= 3 &&  // max 3 words — real medicine names are short
+      !/^\d+$/.test(cleaned) &&
+      !/^\d+[\s\-to]+\d+/.test(cleaned) &&
+      !skipPatterns.test(cleaned)
+    ) {
+      medicines.push(cleaned.toLowerCase());
+    }
   }
+  return [...new Set(medicines)];
+}
 }
