@@ -1,6 +1,7 @@
 import { NestFactory } from "@nestjs/core";
 import { MicroserviceOptions, Transport } from "@nestjs/microservices";
 import { AppModule } from "./app.module";
+import { PinoLoggerService } from "./logger/logger.service";
 import { join } from "path";
 
 async function bootstrap() {
@@ -16,7 +17,10 @@ async function bootstrap() {
     }
   );
 
+  const logger = app.get(PinoLoggerService);
+  app.useLogger(logger);
+
   await app.listen();
-  console.log("OCR gRPC microservice running on port 50051");
+  logger.log("OCR gRPC microservice running on port 50051", "Bootstrap");
 }
 bootstrap();

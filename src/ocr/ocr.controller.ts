@@ -1,6 +1,7 @@
-import { Controller, Logger } from "@nestjs/common";
+import { Controller } from "@nestjs/common";
 import { GrpcMethod } from "@nestjs/microservices";
 import { OcrService } from "./ocr.service";
+import { PinoLoggerService } from "../logger/logger.service";
 
 interface ExtractTextRequest {
   image: Buffer;
@@ -16,13 +17,14 @@ interface ExtractTextResponse {
 
 @Controller()
 export class OcrController {
-  private readonly logger = new Logger(OcrController.name);
-
-  constructor(private readonly ocrService: OcrService) {}
+  constructor(
+    private readonly ocrService: OcrService,
+    private readonly logger: PinoLoggerService,
+  ) {}
 
   @GrpcMethod("OcrService", "ExtractText")
   async extractText(data: ExtractTextRequest): Promise<ExtractTextResponse> {
-    this.logger.log("Received gRPC ExtractText request");
+    this.logger.log("Received gRPC ExtractText request", "OcrController");
 
     const imageBuffer = Buffer.isBuffer(data.image)
       ? data.image
